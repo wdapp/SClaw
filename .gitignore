@@ -1,0 +1,31 @@
+.env
+.env.local
+.env.*
+!.env.example
+
+# Local tooling
+.claude/worktrees/
+.claude/scheduled_tasks.lock
+.claude/settings.local.json
+.sidecar/
+.todos/
+.worktrees/
+
+# macOS
+.DS_Store
+
+# Rust build output
+target/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Local reports
+bench-results/
+coverage/
+
+# Local traces
+trace_*.json
