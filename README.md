@@ -117,6 +117,40 @@ bash scripts/package-macos-dmg.sh
 - `target/SClaw.app`
 - `target/SClaw.dmg`
 
+### 上传到 GitHub Release
+
+如果你希望用户在 GitHub 的 Release 页面直接下载安装包，可以使用 `gh` 上传 `target/SClaw.dmg`。
+
+#### 第一步：安装并登录 GitHub CLI
+
+```bash
+brew install gh
+gh auth login
+```
+
+#### 第二步：创建标签并推送
+
+下面以 `v0.1.0` 为例：
+
+```bash
+git tag v0.1.0
+git push origin main --tags
+```
+
+#### 第三步：创建 Release 并上传 dmg
+
+```bash
+gh release create v0.1.0 target/SClaw.dmg \
+  --title "SClaw v0.1.0" \
+  --notes "首个可下载安装版本"
+```
+
+如果这个版本号已经存在，只想重新上传安装包，可以执行：
+
+```bash
+gh release upload v0.1.0 target/SClaw.dmg --clobber
+```
+
 ## 说明
 
 - `target/` 目录只存放编译和打包产物，不需要提交到 Git。
