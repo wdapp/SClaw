@@ -57,7 +57,7 @@ wasm-tools --version
 ### 获取项目代码
 
 ```bash
-git clone <你的仓库地址>
+git clone <仓库地址>
 cd SClaw
 ```
 
