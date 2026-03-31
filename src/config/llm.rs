@@ -10,8 +10,8 @@ use crate::llm::registry::{ProviderProtocol, ProviderRegistry};
 use crate::llm::session::SessionConfig;
 use crate::settings::Settings;
 
-const DEFAULT_SCLAW_LLM_BASE_URL: &str = "https://openvpn.longlast.xyz:18443/v1";
-const DEFAULT_SCLAW_LLM_MODEL: &str = "Qwen/Qwen2.5-14B-Instruct";
+const DEFAULT_SCLAW_LLM_BASE_URL: &str = "https://llm-api.jinghua.security:18443/v1";
+const DEFAULT_SCLAW_LLM_MODEL: &str = "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-FP8";
 
 impl LlmConfig {
     /// Create a test-friendly config without reading env vars.
