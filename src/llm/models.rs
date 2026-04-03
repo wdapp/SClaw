@@ -1,9 +1,15 @@
 //! Model discovery and fetching for multiple LLM providers.
 
 fn insecure_llm_tls_enabled() -> bool {
-    // Temporary demo-mode behavior: always skip TLS certificate verification
-    // for OpenAI-compatible model discovery against the current self-signed backend.
-    true
+    matches!(
+        std::env::var("LLM_INSECURE_TLS")
+            .ok()
+            .as_deref()
+            .map(str::trim)
+            .map(str::to_ascii_lowercase)
+            .as_deref(),
+        Some("1" | "true" | "yes" | "on")
+    )
 }
 
 /// Fetch models from the Anthropic API.

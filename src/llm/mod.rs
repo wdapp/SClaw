@@ -108,10 +108,15 @@ pub async fn create_llm_provider(
 }
 
 fn insecure_llm_tls_enabled() -> bool {
-    // Temporary demo-mode behavior: always skip TLS certificate verification
-    // for OpenAI-compatible endpoints so packaged installs can reach the
-    // current self-signed backend without extra machine setup.
-    true
+    matches!(
+        std::env::var("LLM_INSECURE_TLS")
+            .ok()
+            .as_deref()
+            .map(str::trim)
+            .map(str::to_ascii_lowercase)
+            .as_deref(),
+        Some("1" | "true" | "yes" | "on")
+    )
 }
 
 /// Create an LLM provider from a `NearAiConfig` directly.

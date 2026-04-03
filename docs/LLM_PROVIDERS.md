@@ -212,6 +212,12 @@ LLM_API_KEY=token-abc123        # set to any string if auth is not configured
 LLM_MODEL=meta-llama/Llama-3.1-8B-Instruct
 ```
 
+If your endpoint uses a self-signed certificate, opt in to insecure TLS:
+
+```env
+LLM_INSECURE_TLS=true
+```
+
 LiteLLM proxy (forwards to any backend, including Bedrock, Vertex, Azure):
 
 ```env
