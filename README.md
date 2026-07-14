@@ -88,7 +88,9 @@ cargo run
 - `target/SClaw.app`
   作为最终生成的 app
 - `target/SClaw.dmg`
-  作为最终生成的 dmg
+  作为本地未签名 dmg
+- `target/SClaw-0.1.3-arm64.dmg`
+  作为签名、公证后的 Apple Silicon 正式 dmg
 
 ### 第一步：编译 release 产物
 
@@ -96,7 +98,7 @@ cargo run
 cargo build --release
 ```
 
-### 第二步：执行打包脚本
+### 第二步：本地未签名打包
 
 ```bash
 bash scripts/package-macos-dmg.sh
@@ -110,16 +112,49 @@ bash scripts/package-macos-dmg.sh
 4. 复制 `target/release/ironclaw` 到 `target/SClaw.app/Contents/MacOS/ironclaw`
 5. 生成 `target/SClaw.dmg`
 
+无参数模式用于本机开发验证，继续生成未签名的 `target/SClaw.dmg`。
+
+### 正式签名与公证打包
+
+正式包需要钥匙串中已有公司 `Developer ID Application` 证书，并准备 App Store Connect API Key。以下环境变量都必须设置：
+
+- `CSC_NAME`：钥匙串中的 Developer ID Application 签名身份名称或哈希
+- `APPLE_TEAM_ID`：Apple Developer Team ID
+- `APPLE_API_KEY`：可读的 App Store Connect API Key `.p8` 文件路径
+- `APPLE_API_KEY_ID`：API Key ID
+- `APPLE_API_ISSUER`：API Issuer ID
+
+```bash
+cargo build --release
+bash scripts/package-macos-dmg.sh --release
+```
+
+脚本只接受 arm64 Mach-O，随后依次完成 Hardened Runtime 签名、App 验签、DMG 签名、Apple 公证、staple、Gatekeeper 检查和 DMG 完整性验证。任何一步失败都会以非零状态退出，不会把未公证产物报告为成功。
+
 ### 打包结果
 
 打包完成后，你会得到：
 
 - `target/SClaw.app`
 - `target/SClaw.dmg`
+- `target/SClaw-0.1.3-arm64.dmg`（仅正式签名模式）
+
+正式包可再次执行以下验签命令：
+
+```bash
+codesign -dv --verbose=4 target/SClaw.app
+codesign --verify --deep --strict --verbose=2 target/SClaw.app
+codesign -d --entitlements :- target/SClaw.app
+xcrun stapler validate target/SClaw-0.1.3-arm64.dmg
+spctl --assess --type open --context context:primary-signature --verbose=4 target/SClaw-0.1.3-arm64.dmg
+hdiutil verify target/SClaw-0.1.3-arm64.dmg
+```
+
+`spctl` 输出应包含 `source=Notarized Developer ID`，且不能依赖 `override=security disabled`。
 
 ### 上传到 GitHub Release
 
-如果你希望用户在 GitHub 的 Release 页面直接下载安装包，可以使用 `gh` 上传 `target/SClaw.dmg`。
+如果你希望用户在 GitHub 的 Release 页面直接下载安装包，可以使用 `gh` 上传正式签名的 `target/SClaw-0.1.3-arm64.dmg`。
 
 #### 第一步：安装并登录 GitHub CLI
 
@@ -130,25 +165,25 @@ gh auth login
 
 #### 第二步：创建标签并推送
 
-下面以 `v0.1.0` 为例：
+下面以 `v0.1.3` 为例：
 
 ```bash
-git tag v0.1.0
+git tag v0.1.3
 git push origin main --tags
 ```
 
 #### 第三步：创建 Release 并上传 dmg
 
 ```bash
-gh release create v0.1.0 target/SClaw.dmg \
-  --title "SClaw v0.1.0" \
-  --notes "首个可下载安装版本"
+gh release create v0.1.3 target/SClaw-0.1.3-arm64.dmg \
+  --title "SClaw v0.1.3" \
+  --notes "Apple Silicon 签名公证版本"
 ```
 
 如果这个版本号已经存在，只想重新上传安装包，可以执行：
 
 ```bash
-gh release upload v0.1.0 target/SClaw.dmg --clobber
+gh release upload v0.1.3 target/SClaw-0.1.3-arm64.dmg --clobber
 ```
 
 ## 说明
@@ -157,19 +192,13 @@ gh release upload v0.1.0 target/SClaw.dmg --clobber
 
 ## 安装应用
 
-- 下载 SClaw.dmg 到本地，双击打开，把 SClaw 拖到 Applications 文件夹中。
+- 下载正式签名的 SClaw dmg，双击打开，把 SClaw 拖到 Applications 文件夹中。
 
 ![安装界面](docs/images/install.png)
 
-- 如果应用在另一台 macOS 机器上被系统拦截，或提示app无法打开，需要命令行执行权限：
+- 正式签名并公证的安装包不需要执行 `xattr -dr`；首次打开仍会显示 macOS 标准的互联网下载确认框。本地无参数模式生成的未签名包只用于开发验证，不用于分发。
 
-```bash
-xattr -dr com.apple.quarantine /Applications/SClaw.app
-```
-
-![应用授权](docs/images/xattr.png)
-
-- 应用授权以后再次尝试打开 SClaw.app
+- 安装完成后打开 SClaw.app
 
 ![启动应用](docs/images/app.png)
 
