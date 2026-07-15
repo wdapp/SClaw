@@ -158,7 +158,6 @@ pub async fn run_agentic_loop(
                     iteration,
                     len = text.len(),
                     has_suggestions = text.contains("<suggestions>"),
-                    response = %text,
                     "LLM text response"
                 );
             }

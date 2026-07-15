@@ -14,7 +14,11 @@ impl SubmissionParser {
     pub fn parse(content: &str) -> Submission {
         let trimmed = content.trim();
         let lower = trimmed.to_lowercase();
-        tracing::debug!("[SubmissionParser::parse] Parsing input: {:?}", trimmed);
+        tracing::debug!(
+            input_len = trimmed.len(),
+            is_command = trimmed.starts_with('/'),
+            "[SubmissionParser::parse] Parsing input"
+        );
 
         // Control commands (exact match or prefix)
         if lower == "/undo" {

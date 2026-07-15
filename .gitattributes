@@ -1,0 +1,2 @@
+# Keep pinned JSSDK runtime bytes identical to the verified upstream artifacts.
+sidecar/vendor/client-tssdk/*.js -diff -text linguist-vendored

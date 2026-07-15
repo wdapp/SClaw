@@ -360,8 +360,13 @@ impl<'a> LoopDelegate for ChatDelegate<'a> {
                 // Compact messages in place and retry
                 reason_ctx.messages = compact_messages_for_retry(&reason_ctx.messages);
 
-                // When force_text, clear tools to further reduce token count
-                if reason_ctx.force_text {
+                // Keep tool definitions when the retained history contains tool
+                // messages; OpenAI-compatible providers need them to validate the
+                // history even though tool_choice=none forbids another call.
+                let has_tool_history = reason_ctx.messages.iter().any(|message| {
+                    message.role == crate::llm::Role::Tool || message.tool_calls.is_some()
+                });
+                if reason_ctx.force_text && !has_tool_history {
                     reason_ctx.available_tools.clear();
                 }
 
@@ -1799,8 +1804,7 @@ mod tests {
 
     // === QA Plan P2 - 4.3: Dispatcher loop guard tests ===
 
-    /// LLM provider that always returns tool calls when tools are available,
-    /// and text when tools are empty (simulating force_text stripping tools).
+    /// LLM provider that always returns tool calls, even when tool_choice=none.
     struct AlwaysToolCallProvider;
 
     #[async_trait]
@@ -1817,13 +1821,9 @@ mod tests {
             &self,
             _request: CompletionRequest,
         ) -> Result<CompletionResponse, crate::error::LlmError> {
-            Ok(CompletionResponse {
-                content: "forced text response".to_string(),
-                input_tokens: 0,
-                output_tokens: 5,
-                finish_reason: FinishReason::Stop,
-                cache_read_input_tokens: 0,
-                cache_creation_input_tokens: 0,
+            Err(crate::error::LlmError::InvalidResponse {
+                provider: "always-tool-call".to_string(),
+                reason: "tool history must retain its tool definitions".to_string(),
             })
         }
 
@@ -1831,21 +1831,12 @@ mod tests {
             &self,
             request: ToolCompletionRequest,
         ) -> Result<ToolCompletionResponse, crate::error::LlmError> {
-            if request.tools.is_empty() {
-                // No tools = force_text mode; return text.
-                return Ok(ToolCompletionResponse {
-                    content: Some("forced text response".to_string()),
-                    tool_calls: Vec::new(),
-                    input_tokens: 0,
-                    output_tokens: 5,
-                    finish_reason: FinishReason::Stop,
-                    cache_read_input_tokens: 0,
-                    cache_creation_input_tokens: 0,
-                });
+            if request.tool_choice.as_deref() == Some("none") {
+                assert!(!request.tools.is_empty(), "tool history needs definitions");
             }
-            // Tools available: always call one.
             Ok(ToolCompletionResponse {
-                content: None,
+                content: (request.tool_choice.as_deref() == Some("none"))
+                    .then(|| "forced text response".to_string()),
                 tool_calls: vec![ToolCall {
                     id: format!("call_{}", uuid::Uuid::new_v4()),
                     name: "echo".to_string(),
@@ -1885,9 +1876,22 @@ mod tests {
             "Without force_text, should get tool calls"
         );
 
-        // With force_text: provider must return text (tools stripped).
+        // With force_text and tool history: preserve the tool definition but
+        // force tool_choice=none so the provider can validate history. The
+        // client must still ignore a tool call from a non-compliant provider.
         let mut ctx_forced = ReasoningContext::new()
-            .with_messages(vec![ChatMessage::user("hello")])
+            .with_messages(vec![
+                ChatMessage::user("hello"),
+                ChatMessage::assistant_with_tool_calls(
+                    None,
+                    vec![ToolCall {
+                        id: "call_previous".to_string(),
+                        name: "echo".to_string(),
+                        arguments: serde_json::json!({"message": "hello"}),
+                    }],
+                ),
+                ChatMessage::tool_result("call_previous", "echo", "hello"),
+            ])
             .with_tools(vec![tool_def]);
         ctx_forced.force_text = true;
         let output = reasoning.respond_with_tools(&ctx_forced).await.unwrap();

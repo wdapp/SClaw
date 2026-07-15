@@ -23,6 +23,7 @@ use ironclaw::{
     llm::create_session_manager,
     orchestrator::{ReaperConfig, SandboxReaper},
     pairing::PairingStore,
+    sidecar::{CryptoSidecar, requires_crypto_sidecar},
     tracing_fmt::{init_cli_tracing, init_worker_tracing},
     webhooks::{self, ToolWebhookState},
 };
@@ -253,6 +254,12 @@ async fn async_main() -> anyhow::Result<()> {
     .await?;
 
     let config = components.config;
+
+    let mut crypto_sidecar = if requires_crypto_sidecar(&config.llm.backend) {
+        Some(CryptoSidecar::start().await?)
+    } else {
+        None
+    };
 
     // ── Tunnel setup ───────────────────────────────────────────────────
 
@@ -589,7 +596,10 @@ async fn async_main() -> anyhow::Result<()> {
             },
             db_connected: !cli.no_db,
             tool_count: boot_tool_count,
-            gateway_url: gateway_url.clone(),
+            gateway_url: gateway_url.as_ref().map(|url| {
+                url.split_once('?')
+                    .map_or_else(|| url.clone(), |(base, _)| base.to_string())
+            }),
             embeddings_enabled: config.embeddings.enabled,
             embeddings_provider: if config.embeddings.enabled {
                 Some(config.embeddings.provider.clone())
@@ -616,10 +626,16 @@ async fn async_main() -> anyhow::Result<()> {
     if cli.message.is_none()
         && let Some(url) = gateway_url.as_ref()
     {
+        let safe_url = url.split_once('?').map_or(url.as_str(), |(base, _)| base);
         if let Err(e) = open::that(url) {
-            tracing::warn!(url = %url, error = %e, "Could not open browser automatically");
+            tracing::warn!(
+                url = %safe_url,
+                error_kind = ?e.kind(),
+                raw_os_error = ?e.raw_os_error(),
+                "Could not open browser automatically"
+            );
         } else {
-            tracing::info!(url = %url, "Opened SClaw in browser");
+            tracing::info!(url = %safe_url, "Opened SClaw in browser");
         }
     }
 
@@ -945,9 +961,16 @@ async fn async_main() -> anyhow::Result<()> {
         });
     }
 
-    agent.run().await?;
+    let agent_result = agent.run().await;
 
     // ── Shutdown ────────────────────────────────────────────────────────
+
+    // Stop the local encryption bridge before other process-wide teardown.
+    let sidecar_shutdown_error = if let Some(sidecar) = crypto_sidecar.as_mut() {
+        sidecar.shutdown().await.err()
+    } else {
+        None
+    };
 
     // Signal background tasks (SIGHUP handler, etc.) to gracefully shut down
     let _ = shutdown_tx.send(());
@@ -983,6 +1006,11 @@ async fn async_main() -> anyhow::Result<()> {
     }
 
     tracing::debug!("Agent shutdown complete");
+
+    agent_result?;
+    if let Some(error) = sidecar_shutdown_error {
+        return Err(error.into());
+    }
 
     Ok(())
 }

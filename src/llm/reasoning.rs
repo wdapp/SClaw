@@ -633,7 +633,11 @@ Respond in JSON format:
                 .cloned(),
         );
 
-        let effective_tools = if context.force_text {
+        let has_tool_history = context
+            .messages
+            .iter()
+            .any(|message| message.role == Role::Tool || message.tool_calls.is_some());
+        let effective_tools = if context.force_text && !has_tool_history {
             Vec::new()
         } else {
             context.available_tools.clone()
@@ -644,7 +648,7 @@ Respond in JSON format:
             let mut request = ToolCompletionRequest::new(messages, effective_tools)
                 .with_max_tokens(4096)
                 .with_temperature(0.7)
-                .with_tool_choice("auto");
+                .with_tool_choice(if context.force_text { "none" } else { "auto" });
             request.metadata = context.metadata.clone();
 
             let response = self.llm.complete_with_tools(request).await?;
@@ -655,8 +659,10 @@ Respond in JSON format:
                 cache_creation_input_tokens: response.cache_creation_input_tokens,
             };
 
-            // If there were tool calls, return them for execution
-            if !response.tool_calls.is_empty() {
+            // If there were tool calls, return them for execution unless this
+            // is the forced final response. Enforce tool_choice=none locally
+            // as well so a non-compliant provider cannot extend the loop.
+            if !response.tool_calls.is_empty() && !context.force_text {
                 return Ok(RespondOutput {
                     result: RespondResult::ToolCalls {
                         tool_calls: response.tool_calls,
@@ -667,6 +673,12 @@ Respond in JSON format:
                     },
                     usage,
                 });
+            }
+            if context.force_text && !response.tool_calls.is_empty() {
+                tracing::warn!(
+                    tool_call_count = response.tool_calls.len(),
+                    "Ignoring tool calls returned during forced text response"
+                );
             }
 
             let content = response
@@ -679,7 +691,11 @@ Respond in JSON format:
             // NOTE: Recovery runs on the raw content (before truncation) so it can
             // parse tool-call JSON from the XML tags. Truncation only applies to the
             // remaining *text* content returned alongside the recovered tool calls.
-            let recovered = recover_tool_calls_from_content(&content, &context.available_tools);
+            let recovered = if context.force_text {
+                Vec::new()
+            } else {
+                recover_tool_calls_from_content(&content, &context.available_tools)
+            };
             if !recovered.is_empty() {
                 let pre_truncated = truncate_at_tool_tags(&content);
                 let cleaned = clean_response(&pre_truncated);

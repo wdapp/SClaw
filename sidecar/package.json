@@ -1,0 +1,12 @@
+{
+  "name": "sclaw-crypto-sidecar",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.14.0"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  }
+}

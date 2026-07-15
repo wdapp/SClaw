@@ -296,8 +296,11 @@ fn create_openai_compat_from_registry(
         "Using OpenAI-compatible provider"
     );
 
-    let adapter = RigAdapter::new(model, &config.model)
+    let mut adapter = RigAdapter::new(model, &config.model)
         .with_unsupported_params(config.unsupported_params.clone());
+    if config.provider_id == "jinghua_saas" {
+        adapter = adapter.with_session_id_metadata();
+    }
     Ok(Arc::new(adapter))
 }
 

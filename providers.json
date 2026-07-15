@@ -78,6 +78,27 @@
     }
   },
   {
+    "id": "jinghua_saas",
+    "aliases": [
+      "jinghua",
+      "jhms"
+    ],
+    "protocol": "open_ai_completions",
+    "default_base_url": "http://127.0.0.1:3190/v1",
+    "api_key_env": "JINGHUA_API_KEY",
+    "api_key_required": true,
+    "model_env": "JINGHUA_MODEL",
+    "default_model": "nvidia/Kimi-K2.6-NVFP4",
+    "description": "Jinghua confidential SaaS through the bundled local encryption sidecar",
+    "setup": {
+      "kind": "api_key",
+      "secret_name": "llm_jinghua_saas_api_key",
+      "key_url": "https://console.jinghua.security",
+      "display_name": "荆华密态 SaaS",
+      "can_list_models": false
+    }
+  },
+  {
     "id": "tinfoil",
     "aliases": [],
     "protocol": "open_ai_completions",

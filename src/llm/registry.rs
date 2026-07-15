@@ -358,6 +358,30 @@ mod tests {
     }
 
     #[test]
+    fn test_jinghua_saas_provider_uses_local_openai_bridge() {
+        let registry = ProviderRegistry::new(
+            serde_json::from_str(include_str!("../../providers.json")).unwrap(),
+        );
+        let provider = registry
+            .find("jhms")
+            .expect("jhms alias should resolve to jinghua_saas");
+
+        assert_eq!(provider.id, "jinghua_saas");
+        assert_eq!(provider.protocol, ProviderProtocol::OpenAiCompletions);
+        assert_eq!(
+            provider.default_base_url.as_deref(),
+            Some("http://127.0.0.1:3190/v1")
+        );
+        assert_eq!(provider.api_key_env.as_deref(), Some("JINGHUA_API_KEY"));
+        assert_eq!(provider.model_env, "JINGHUA_MODEL");
+        assert_eq!(provider.default_model, "nvidia/Kimi-K2.6-NVFP4");
+        assert_eq!(
+            provider.setup.as_ref().map(|setup| setup.can_list_models()),
+            Some(false)
+        );
+    }
+
+    #[test]
     fn test_find_case_insensitive() {
         let registry = ProviderRegistry::new(
             serde_json::from_str(include_str!("../../providers.json")).unwrap(),

@@ -46,6 +46,9 @@ pub struct RigAdapter<M: CompletionModel> {
     /// Parameter names that this provider does not support (e.g., `"temperature"`).
     /// These are stripped from requests before sending to avoid 400 errors.
     unsupported_params: HashSet<String>,
+    /// Forward request `thread_id` metadata as a top-level `session_id`.
+    /// Used by providers whose upstream protocol requires a stable chat session.
+    forward_thread_id_as_session_id: bool,
 }
 
 impl<M: CompletionModel> RigAdapter<M> {
@@ -61,6 +64,7 @@ impl<M: CompletionModel> RigAdapter<M> {
             output_cost,
             cache_retention: CacheRetention::None,
             unsupported_params: HashSet::new(),
+            forward_thread_id_as_session_id: false,
         }
     }
 
@@ -96,6 +100,12 @@ impl<M: CompletionModel> RigAdapter<M> {
     /// Supported parameter names: `"temperature"`, `"max_tokens"`, `"stop_sequences"`.
     pub fn with_unsupported_params(mut self, params: Vec<String>) -> Self {
         self.unsupported_params = params.into_iter().collect();
+        self
+    }
+
+    /// Forward the internal thread ID as the provider's top-level session ID.
+    pub fn with_session_id_metadata(mut self) -> Self {
+        self.forward_thread_id_as_session_id = true;
         self
     }
 
@@ -515,6 +525,7 @@ fn build_rig_request(
     temperature: Option<f32>,
     max_tokens: Option<u32>,
     cache_retention: CacheRetention,
+    session_id: Option<&str>,
 ) -> Result<RigRequest, LlmError> {
     // rig-core requires at least one message in chat_history
     if history.is_empty() {
@@ -526,15 +537,32 @@ fn build_rig_request(
         reason: format!("Failed to build chat history: {}", e),
     })?;
 
-    // Inject top-level cache_control for Anthropic automatic prompt caching.
-    let additional_params = match cache_retention {
-        CacheRetention::None => None,
-        CacheRetention::Short => Some(serde_json::json!({
-            "cache_control": {"type": "ephemeral"}
-        })),
-        CacheRetention::Long => Some(serde_json::json!({
-            "cache_control": {"type": "ephemeral", "ttl": "1h"}
-        })),
+    let mut additional_params = serde_json::Map::new();
+    match cache_retention {
+        CacheRetention::None => {}
+        CacheRetention::Short => {
+            additional_params.insert(
+                "cache_control".to_string(),
+                serde_json::json!({"type": "ephemeral"}),
+            );
+        }
+        CacheRetention::Long => {
+            additional_params.insert(
+                "cache_control".to_string(),
+                serde_json::json!({"type": "ephemeral", "ttl": "1h"}),
+            );
+        }
+    }
+    if let Some(session_id) = session_id.filter(|value| !value.trim().is_empty()) {
+        additional_params.insert(
+            "session_id".to_string(),
+            serde_json::Value::String(session_id.to_string()),
+        );
+    }
+    let additional_params = if additional_params.is_empty() {
+        None
+    } else {
+        Some(serde_json::Value::Object(additional_params))
     };
 
     Ok(RigRequest {
@@ -595,6 +623,12 @@ where
 
         self.strip_unsupported_completion_params(&mut request);
 
+        let session_id = self
+            .forward_thread_id_as_session_id
+            .then(|| request.metadata.get("thread_id"))
+            .flatten()
+            .map(String::as_str);
+
         let mut messages = request.messages;
         crate::llm::provider::sanitize_tool_messages(&mut messages);
         let (preamble, history) = convert_messages(&messages);
@@ -607,6 +641,7 @@ where
             request.temperature,
             request.max_tokens,
             self.cache_retention,
+            session_id,
         )?;
 
         let response =
@@ -658,6 +693,12 @@ where
 
         self.strip_unsupported_tool_params(&mut request);
 
+        let session_id = self
+            .forward_thread_id_as_session_id
+            .then(|| request.metadata.get("thread_id"))
+            .flatten()
+            .map(String::as_str);
+
         let known_tool_names: HashSet<String> =
             request.tools.iter().map(|t| t.name.clone()).collect();
 
@@ -675,6 +716,7 @@ where
             request.temperature,
             request.max_tokens,
             self.cache_retention,
+            session_id,
         )?;
 
         let response =
@@ -1093,6 +1135,7 @@ mod tests {
             None,
             None,
             CacheRetention::Short,
+            None,
         )
         .unwrap();
 
@@ -1116,6 +1159,7 @@ mod tests {
             None,
             None,
             CacheRetention::Long,
+            None,
         )
         .unwrap();
 
@@ -1136,12 +1180,33 @@ mod tests {
             None,
             None,
             CacheRetention::None,
+            None,
         )
         .unwrap();
 
         assert!(
             req.additional_params.is_none(),
             "additional_params should be None when cache is disabled"
+        );
+    }
+
+    #[test]
+    fn test_build_rig_request_injects_session_id() {
+        let req = build_rig_request(
+            None,
+            vec![RigMessage::user("Hello")],
+            Vec::new(),
+            None,
+            None,
+            None,
+            CacheRetention::None,
+            Some("thread-123"),
+        )
+        .unwrap();
+
+        assert_eq!(
+            req.additional_params.expect("session_id should be present")["session_id"],
+            "thread-123"
         );
     }
 
@@ -1221,6 +1286,23 @@ mod tests {
 
         assert!(adapter.unsupported_params.contains("temperature"));
         assert!(!adapter.unsupported_params.contains("max_tokens"));
+    }
+
+    #[test]
+    fn test_session_id_metadata_is_opt_in() {
+        use rig::client::CompletionClient;
+        use rig::providers::openai;
+
+        let client: openai::Client = openai::Client::builder()
+            .api_key("test-key")
+            .base_url("http://localhost:0")
+            .build()
+            .unwrap();
+        let model = client.completions_api().completion_model("test-model");
+
+        let adapter = RigAdapter::new(model, "test-model").with_session_id_metadata();
+
+        assert!(adapter.forward_thread_id_as_session_id);
     }
 
     #[test]
