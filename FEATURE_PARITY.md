@@ -241,7 +241,7 @@ This document tracks feature parity between IronClaw (Rust implementation) and O
 | NVIDIA API | ✅ | ❌ | P3 | New provider |
 | OpenRouter | ✅ | ✅ | - | Via OpenAI-compatible provider (RigAdapter) |
 | Tinfoil | ❌ | ✅ | - | Private inference provider (IronClaw-only) |
-| Jinghua confidential SaaS | ❌ | ✅ | - | `jinghua_saas` uses the OpenAI-compatible provider plus a supervised local Node/JSSDK sidecar; the bundled endpoint remains test-only pending the separate production rollout; real test-environment `auto` and full 46-tool `required` two-turn loops passed through SaaS→Gateway→TEE with local execution and encrypted result continuation; attachments/RAG/Web Search combinations remain unsupported; local UI/history remain plaintext ([acceptance](docs/JINGHUA_CONFIDENTIAL_SIDECAR_ACCEPTANCE.md)) |
+| Jinghua confidential SaaS | ❌ | ✅ | - | `jinghua_saas` uses the OpenAI-compatible provider plus a supervised local Node/JSSDK sidecar; SClaw 0.1.4 defaults to this provider and `nvidia/Kimi-K2.6-NVFP4` without onboarding, while the release build injects a dedicated distribution credential from the packager environment instead of committing it or reading it from the repository `.env`; the bundled endpoint remains test-only pending the separate production rollout; real test-environment `auto` and full 46-tool `required` two-turn loops passed through SaaS→Gateway→TEE with local execution and encrypted result continuation; attachments/RAG/Web Search combinations remain unsupported; local UI/history remain plaintext ([acceptance](docs/JINGHUA_CONFIDENTIAL_SIDECAR_ACCEPTANCE.md)) |
 | OpenAI-compatible | ❌ | ✅ | - | Generic OpenAI-compatible endpoint (RigAdapter) |
 | Ollama (local) | ✅ | ✅ | - | via `rig::providers::ollama` (full support) |
 | Perplexity | ✅ | ❌ | P3 | Freshness parameter for web_search |
@@ -399,7 +399,7 @@ This document tracks feature parity between IronClaw (Rust implementation) and O
 | Instances tab | ✅ | 🚫 | - | Presence beacons across instances |
 | Agent events debug window | ✅ | 🚫 | - | Real-time event inspector |
 | Sparkle auto-updates | ✅ | 🚫 | - | Appcast distribution |
-| Bundled confidential sidecar | ❌ | ✅ | - | Signed/notarized Apple Silicon DMG bundles Node 24.14.0, sidecar, and JSSDK 1.0.15; bundled-only path, minimal-PATH two-turn chat, health, graceful shutdown, and child reaping verified; minimum macOS 13.5 ([acceptance](docs/JINGHUA_CONFIDENTIAL_SIDECAR_ACCEPTANCE.md)) |
+| Bundled confidential sidecar | ❌ | ✅ | - | SClaw 0.1.4 starts the bundled sidecar and Kimi model by default with no user configuration; signed/notarized Apple Silicon DMG bundles Node 24.14.0, sidecar, and JSSDK 1.0.15; bundled-only path, minimal-PATH two-turn chat, health, graceful shutdown, and child reaping verified; minimum macOS 13.5 ([acceptance](docs/JINGHUA_CONFIDENTIAL_SIDECAR_ACCEPTANCE.md)) |
 
 ### Owner: _Unassigned_ (if ever prioritized)
 

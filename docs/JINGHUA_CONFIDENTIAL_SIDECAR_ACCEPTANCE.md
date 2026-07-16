@@ -77,6 +77,14 @@ SClaw 全量 `cargo test --workspace` 本机结果为 3163 通过、54 失败、
 
 该 DMG 由本轮当前源码重新构建、签名和公证，包含 V1 sidecar 工具协议与固定 Node/JSSDK runtime，不沿用旧产物哈希。
 
+### 5.1 SClaw 0.1.4 零配置预发布验证
+
+- 2026-07-16 将 SClaw 默认 Provider 改为 `jinghua_saas`，默认模型改为 `nvidia/Kimi-K2.6-NVFP4`，首次启动不再要求用户完成 LLM 配置向导。
+- 打包脚本只从进程环境读取 `SCLAW_BUNDLED_JINGHUA_API_KEY` 专用发行凭据，并在脚本内部重新编译 release 二进制；凭据不写入源码、App Resources 文件或仓库 `.env`，也不回退使用压测或其他通用 Key。
+- 本地生成 `target/SClaw.app` 和 `target/SClaw-local-unsigned.dmg` 后，使用空临时用户目录、最小 `PATH`，且不提供任何 `LLM_*` / `JINGHUA_*` 运行时环境变量启动 App 内 release 二进制。App 自动使用 bundled Node v24.14.0 启动 `127.0.0.1:3190` sidecar，JSSDK 1.0.15 就绪，并由 Kimi 返回预期文本“测试成功”。
+- 该验证证明源码、发行凭据注入、App 内 Node/sidecar 定位和真实聊天链路已打通；`target/SClaw-local-unsigned.dmg` 仅用于开发验证。2026-07-16 使用本节源码完成 `target/SClaw-0.1.4-arm64.dmg` 正式签名与公证，公证 submission 为 `19358bdc-2c6c-4a79-8aea-41a68def5c1e`，SHA-256 为 `0fd9a88ab1ca24f587e297214cc73e0a7d16a8f6c5248500ebb94e3cbf8797cd`；`stapler validate`、`source=Notarized Developer ID`、`hdiutil verify` 和脚本自动生成的 `.sha256` 复验均通过。
+- 内置客户端凭据可被逆向提取。公开分发必须使用可撤销、可轮换、限模型和限额度的 SClaw 专用发行 Key，不能使用管理员或其他生产权限凭据。
+
 ## 6. 已知限制与上线前检查
 
 1. 仅支持非流式文本工具调用；不支持附件、图片、语音、RAG、Web Search 或加密 reasoning 的组合。
@@ -86,3 +94,4 @@ SClaw 全量 `cargo test --workspace` 本机结果为 3163 通过、54 失败、
 5. SaaS 测试环境与真实两轮闭环已就绪；生产默认保持关闭。生产发布前按“推理服务 → SaaS 关闭开关部署 → 小流量开启 → SClaw 发布”的既定顺序执行，并继续观察非法工具响应、TEE 解密失败和端到端耗时。
 6. 在 Gatekeeper 开启的干净 Apple Silicon Mac 上复验安装、首次启动、工具闭环和退出清理，消除当前机器 `override=security disabled` 对本机 Gatekeeper 证据的影响。
 7. 外部分发前补齐 Node runtime 来源/哈希、JSSDK 与 vendored 依赖许可证清单和 SBOM，并单独处理仓库既有的全量 Rust 测试与 `cargo fmt --check` 基线问题。
+8. 内置发行 Key 只能降低最终用户配置成本，不能作为客户端保密方案；服务端应监控配额与滥用并保留随时轮换/吊销能力。

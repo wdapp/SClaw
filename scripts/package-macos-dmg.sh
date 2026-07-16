@@ -2,7 +2,7 @@
 set -euo pipefail
 
 APP_NAME="SClaw.app"
-VERSION="0.1.3"
+VERSION="0.1.4"
 EXPECTED_NODE_VERSION="v24.14.0"
 EXPECTED_SDK_VERSION="1.0.15"
 LOCAL_DMG_NAME="SClaw-local-unsigned.dmg"
@@ -30,8 +30,10 @@ SIDECAR_SOURCE_DIR="$ROOT_DIR/sidecar/src"
 SDK_SOURCE_DIR="$ROOT_DIR/sidecar/vendor/client-tssdk"
 if [[ "$MODE" == "release" ]]; then
   OUTPUT_PATH="$TARGET_DIR/$RELEASE_DMG_NAME"
+  CHECKSUM_PATH="$OUTPUT_PATH.sha256"
 else
   OUTPUT_PATH="$TARGET_DIR/$LOCAL_DMG_NAME"
+  CHECKSUM_PATH=""
 fi
 STAGING_DIR=""
 RELEASE_OUTPUT_STARTED="false"
@@ -39,7 +41,7 @@ RELEASE_COMPLETE="false"
 
 cleanup() {
   if [[ "$RELEASE_OUTPUT_STARTED" == "true" && "$RELEASE_COMPLETE" != "true" ]]; then
-    rm -f "$OUTPUT_PATH"
+    rm -f "$OUTPUT_PATH" "$CHECKSUM_PATH"
   fi
   if [[ -n "$STAGING_DIR" ]]; then
     rm -rf "$STAGING_DIR"
@@ -51,7 +53,7 @@ mkdir -p "$TARGET_DIR"
 rm -f "$TARGET_DIR/$LEGACY_LOCAL_DMG_NAME"
 if [[ "$MODE" == "release" ]]; then
   RELEASE_OUTPUT_STARTED="true"
-  rm -f "$TARGET_DIR/$LOCAL_DMG_NAME" "$OUTPUT_PATH"
+  rm -f "$TARGET_DIR/$LOCAL_DMG_NAME" "$OUTPUT_PATH" "$CHECKSUM_PATH"
 else
   rm -f "$OUTPUT_PATH"
 fi
@@ -83,12 +85,15 @@ version_lte() {
 }
 
 [[ -d "$TEMPLATE_APP" ]] || fail "App template not found: $TEMPLATE_APP"
-[[ -f "$BUILT_BINARY" ]] || fail "Built binary not found: $BUILT_BINARY. Run 'cargo build --release' first."
 [[ -n "$NODE_BINARY" ]] || fail "SCLAW_NODE_BINARY must point to the approved arm64 Node $EXPECTED_NODE_VERSION executable."
 [[ -f "$NODE_BINARY" ]] || fail "SCLAW_NODE_BINARY was not found: $NODE_BINARY"
 [[ -x "$NODE_BINARY" ]] || fail "SCLAW_NODE_BINARY is not executable: $NODE_BINARY"
 
-for command_name in file hdiutil lipo otool plutil realpath shasum; do
+BUNDLED_JINGHUA_API_KEY="${SCLAW_BUNDLED_JINGHUA_API_KEY:-}"
+[[ -n "$BUNDLED_JINGHUA_API_KEY" ]] || fail "A dedicated bundled Jinghua credential is required. Set SCLAW_BUNDLED_JINGHUA_API_KEY in the environment."
+[[ "$BUNDLED_JINGHUA_API_KEY" != *[[:space:]]* ]] || fail "SCLAW_BUNDLED_JINGHUA_API_KEY must not contain whitespace."
+
+for command_name in cargo file hdiutil lipo otool plutil realpath shasum; do
   require_command "$command_name"
 done
 
@@ -140,7 +145,14 @@ if [[ "$MODE" == "release" ]]; then
   IDENTITY_LINE="$(security find-identity -v -p codesigning | grep -F "$CSC_NAME" | head -n 1 || true)"
   [[ -n "$IDENTITY_LINE" ]] || fail "Signing identity from CSC_NAME was not found in the keychain."
   [[ "$IDENTITY_LINE" == *"Developer ID Application:"* ]] || fail "CSC_NAME must select a Developer ID Application identity."
+fi
 
+echo "Building release binary with the bundled Jinghua distribution credential."
+SCLAW_BUNDLED_JINGHUA_API_KEY="$BUNDLED_JINGHUA_API_KEY" cargo build --release --manifest-path "$ROOT_DIR/Cargo.toml"
+unset BUNDLED_JINGHUA_API_KEY
+[[ -f "$BUILT_BINARY" ]] || fail "Release build did not create: $BUILT_BINARY"
+
+if [[ "$MODE" == "release" ]]; then
   BINARY_KIND="$(file -b "$BUILT_BINARY")"
   [[ "$BINARY_KIND" == *"Mach-O 64-bit executable arm64"* ]] || fail "Release binary is not an arm64 Mach-O executable: $BINARY_KIND"
   BINARY_ARCHS="$(lipo -archs "$BUILT_BINARY")"
@@ -252,6 +264,11 @@ if [[ "$MODE" == "release" ]]; then
   fi
 
   hdiutil verify "$OUTPUT_PATH"
+  (
+    cd "$TARGET_DIR"
+    shasum -a 256 "$RELEASE_DMG_NAME" >"$RELEASE_DMG_NAME.sha256"
+  )
+  [[ -s "$CHECKSUM_PATH" ]] || fail "Could not create the release SHA-256 file."
   RELEASE_COMPLETE="true"
   echo "Notarization accepted (submission: ${NOTARY_ID:-unknown})."
 fi
@@ -260,6 +277,8 @@ echo "Created app bundle: $APP_PATH"
 echo "Created DMG: $OUTPUT_PATH"
 if [[ "$MODE" == "release" ]]; then
   echo "Install or distribute this release DMG: $OUTPUT_PATH"
+  echo "Created SHA-256: $CHECKSUM_PATH"
+  echo "SHA-256: $(awk '{ print $1 }' "$CHECKSUM_PATH")"
 else
   echo "Local unsigned DMG for development only; do not distribute: $OUTPUT_PATH"
 fi

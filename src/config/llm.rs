@@ -10,8 +10,15 @@ use crate::llm::registry::{ProviderProtocol, ProviderRegistry};
 use crate::llm::session::SessionConfig;
 use crate::settings::Settings;
 
-const DEFAULT_SCLAW_LLM_BASE_URL: &str = "https://llm-api.jinghua.security:18443/v1";
-const DEFAULT_SCLAW_LLM_MODEL: &str = "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-FP8";
+const BUNDLED_JINGHUA_API_KEY: Option<&str> = option_env!("SCLAW_BUNDLED_JINGHUA_API_KEY");
+
+fn bundled_jinghua_api_key() -> Option<&'static str> {
+    BUNDLED_JINGHUA_API_KEY.filter(|key| !key.is_empty() && !key.chars().any(char::is_whitespace))
+}
+
+pub(crate) fn has_bundled_jinghua_api_key() -> bool {
+    bundled_jinghua_api_key().is_some()
+}
 
 impl LlmConfig {
     /// Create a test-friendly config without reading env vars.
@@ -61,13 +68,13 @@ impl LlmConfig {
     pub(crate) fn resolve(settings: &Settings) -> Result<Self, ConfigError> {
         let registry = ProviderRegistry::load();
 
-        // Determine backend: env var > settings > default ("openai_compatible")
+        // Determine backend: env var > settings > SClaw's bundled confidential provider.
         let backend = if let Some(b) = optional_env("LLM_BACKEND")? {
             b
         } else if let Some(ref b) = settings.llm_backend {
             b.clone()
         } else {
-            "openai_compatible".to_string()
+            crate::config::DEFAULT_SCLAW_LLM_BACKEND.to_string()
         };
 
         // Validate the backend is known
@@ -256,19 +263,6 @@ impl LlmConfig {
             )
         };
 
-        let default_base_url = if canonical_id == "openai_compatible" && default_base_url.is_none()
-        {
-            Some(DEFAULT_SCLAW_LLM_BASE_URL)
-        } else {
-            default_base_url
-        };
-
-        let default_model = if canonical_id == "openai_compatible" && default_model == "default" {
-            DEFAULT_SCLAW_LLM_MODEL
-        } else {
-            default_model
-        };
-
         // Codex auth.json override: when LLM_USE_CODEX_AUTH=true,
         // credentials from the Codex CLI's auth.json take highest priority
         // (over env vars AND secrets store). In ChatGPT mode, the base URL
@@ -293,7 +287,12 @@ impl LlmConfig {
             Some(creds.token)
         } else if let Some(env_var) = api_key_env {
             // Resolve API key from env (including secrets store overlay)
-            optional_env(env_var)?.map(SecretString::from)
+            optional_env(env_var)?.map(SecretString::from).or_else(|| {
+                (canonical_id == crate::config::DEFAULT_SCLAW_LLM_BACKEND)
+                    .then_some(bundled_jinghua_api_key())
+                    .flatten()
+                    .map(|key| SecretString::from(key.to_string()))
+            })
         } else {
             None
         };
@@ -449,6 +448,45 @@ mod tests {
     use crate::config::helpers::ENV_MUTEX;
     use crate::settings::Settings;
     use crate::testing::credentials::*;
+
+    #[test]
+    fn sclaw_defaults_to_bundled_jinghua_provider() {
+        let _guard = ENV_MUTEX.lock().expect("env mutex poisoned");
+        let names = ["LLM_BACKEND", "JINGHUA_API_KEY", "JINGHUA_MODEL"];
+        let originals: Vec<_> = names
+            .iter()
+            .map(|name| (*name, std::env::var_os(name)))
+            .collect();
+
+        // SAFETY: Only called under ENV_MUTEX in tests.
+        unsafe {
+            for name in names {
+                std::env::remove_var(name);
+            }
+        }
+
+        let cfg = LlmConfig::resolve(&Settings::default()).expect("default config should resolve");
+        let provider = cfg
+            .provider
+            .expect("default provider config should be present");
+
+        assert_eq!(cfg.backend, crate::config::DEFAULT_SCLAW_LLM_BACKEND);
+        assert_eq!(provider.provider_id, "jinghua_saas");
+        assert_eq!(provider.base_url, "http://127.0.0.1:3190/v1");
+        assert_eq!(provider.model, "nvidia/Kimi-K2.6-NVFP4");
+        assert_eq!(provider.api_key.is_some(), has_bundled_jinghua_api_key());
+
+        // SAFETY: Restore process environment while still holding ENV_MUTEX.
+        unsafe {
+            for (name, value) in originals {
+                if let Some(value) = value {
+                    std::env::set_var(name, value);
+                } else {
+                    std::env::remove_var(name);
+                }
+            }
+        }
+    }
 
     /// Clear all openai-compatible-related env vars.
     fn clear_openai_compatible_env() {

@@ -60,6 +60,9 @@ pub use crate::llm::config::{
 };
 pub use crate::llm::session::SessionConfig;
 
+/// SClaw's zero-configuration provider for packaged and source-mode startup.
+pub(crate) const DEFAULT_SCLAW_LLM_BACKEND: &str = "jinghua_saas";
+
 // Thread-safe env var override helpers (replaces unsafe `std::env::set_var`
 // for mid-process env mutations in multi-threaded contexts).
 pub use self::helpers::{env_or_override, set_runtime_env};
